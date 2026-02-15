@@ -53,7 +53,7 @@ const a1: Survey = {
   respondentFields: [
     { id: 'name', label: '이름', type: 'text', placeholder: '이름을 입력해주세요', required: true, note: '실제 이름 정보는 저장하지 않고, 개인 식별용으로 활용됩니다' },
     { id: 'gender', label: '성별', type: 'radio', options: ['남성', '여성'], required: true },
-    { id: 'wedding_year', label: '결혼 예정 년도', type: 'select', options: ['2025', '2026', '2027', '2028'], required: true },
+    { id: 'wedding_year', label: '결혼 예정 년도', type: 'select', options: ['2026', '2027', '2028', '2029'], required: true },
   ],
   sections: [
     {
