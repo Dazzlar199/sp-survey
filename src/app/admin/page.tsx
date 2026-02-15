@@ -29,30 +29,6 @@ const TYPE_BADGE_STYLES: Record<string, string> = {
   b2: 'bg-amber-50 text-amber-700',
 }
 
-function getQuestionText(surveyType: string, questionId: string): string {
-  const survey = surveys[surveyType as SurveyType]
-  if (!survey) return questionId
-
-  // Search in sections
-  for (const section of survey.sections) {
-    for (const q of section.questions) {
-      if (q.id === questionId) return q.text
-    }
-  }
-
-  // Search in polls
-  for (const poll of survey.polls) {
-    if (poll.id === questionId) return poll.text
-  }
-
-  // Search in finalQuestions
-  for (const q of survey.finalQuestions) {
-    if (q.id === questionId) return q.text
-  }
-
-  return questionId
-}
-
 function formatDate(dateString: string): string {
   try {
     const date = new Date(dateString)
@@ -65,6 +41,88 @@ function formatDate(dateString: string): string {
   } catch {
     return dateString
   }
+}
+
+function stripMarkdown(text: string): string {
+  return text.replace(/\*\*/g, '')
+}
+
+/** Render answers in survey structure order */
+function OrderedAnswers({ surveyType, answers }: { surveyType: string; answers: Record<string, string> }) {
+  const survey = surveys[surveyType as SurveyType]
+  if (!survey) {
+    return <p className="text-sm text-gray-400">알 수 없는 설문 유형입니다.</p>
+  }
+
+  const renderAnswer = (questionId: string, questionText: string) => {
+    const answer = answers[questionId]
+    if (answer === undefined || answer === null || answer === '') return null
+    return (
+      <div key={questionId} className="mb-2">
+        <p className="text-xs text-gray-500 mb-1">{stripMarkdown(questionText)}</p>
+        <div className="text-sm text-[#1a2332] bg-gray-50 rounded-lg px-3 py-2">
+          {String(answer)}
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-5">
+      {/* Respondent fields (B1 등 커스텀 필드) */}
+      {survey.respondentFields && survey.respondentFields.length > 0 && (
+        <div>
+          <h4 className="text-xs font-semibold text-[#c9a959] uppercase tracking-wider mb-2">응답자 정보</h4>
+          {survey.respondentFields.map((field) => renderAnswer(field.id, field.label))}
+        </div>
+      )}
+
+      {/* Sections in order */}
+      {survey.sections.map((section) => (
+        <div key={section.id}>
+          <h4 className="text-xs font-semibold text-[#1a2332] bg-[#1a2332]/5 rounded-md px-3 py-1.5 mb-2">
+            {section.title}
+          </h4>
+          {section.questions.map((q) => renderAnswer(q.id, q.text))}
+        </div>
+      ))}
+
+      {/* O/X Polls */}
+      {survey.polls.length > 0 && (
+        <div>
+          <h4 className="text-xs font-semibold text-[#1a2332] bg-[#1a2332]/5 rounded-md px-3 py-1.5 mb-2">
+            O/X 빠른 투표
+          </h4>
+          <div className="space-y-1.5">
+            {survey.polls.map((poll) => {
+              const answer = answers[poll.id]
+              if (answer === undefined || answer === null || answer === '') return null
+              return (
+                <div key={poll.id} className="flex items-center gap-2">
+                  <span className={`inline-flex items-center justify-center w-7 h-7 rounded-full text-xs font-bold ${
+                    answer === 'O' ? 'bg-blue-100 text-blue-700' : 'bg-red-100 text-red-600'
+                  }`}>
+                    {answer}
+                  </span>
+                  <span className="text-sm text-gray-600">{stripMarkdown(poll.text)}</span>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Final Questions */}
+      {survey.finalQuestions.length > 0 && (
+        <div>
+          <h4 className="text-xs font-semibold text-[#1a2332] bg-[#1a2332]/5 rounded-md px-3 py-1.5 mb-2">
+            종합 의견
+          </h4>
+          {survey.finalQuestions.map((q) => renderAnswer(q.id, q.text))}
+        </div>
+      )}
+    </div>
+  )
 }
 
 export default function AdminPage() {
@@ -138,19 +196,56 @@ export default function AdminPage() {
   const handleDownloadCSV = () => {
     if (filteredResponses.length === 0) return
 
-    // Collect all unique question IDs from filtered responses
-    const questionIds = new Set<string>()
-    filteredResponses.forEach((r) => {
-      if (r.answers && typeof r.answers === 'object') {
-        Object.keys(r.answers).forEach((key) => questionIds.add(key))
+    // Build question IDs in survey order
+    const getOrderedQuestionIds = (surveyType: string): string[] => {
+      const survey = surveys[surveyType as SurveyType]
+      if (!survey) return []
+      const ids: string[] = []
+      if (survey.respondentFields) {
+        survey.respondentFields.forEach((f) => ids.push(f.id))
       }
+      survey.sections.forEach((s) => s.questions.forEach((q) => ids.push(q.id)))
+      survey.polls.forEach((p) => ids.push(p.id))
+      survey.finalQuestions.forEach((q) => ids.push(q.id))
+      return ids
+    }
+
+    // Get ordered question IDs from all survey types in filtered responses
+    const seenTypes = new Set(filteredResponses.map((r) => r.survey_type))
+    const questionIdArray: string[] = []
+    const questionIdSet = new Set<string>()
+    seenTypes.forEach((type) => {
+      getOrderedQuestionIds(type).forEach((id) => {
+        if (!questionIdSet.has(id)) {
+          questionIdSet.add(id)
+          questionIdArray.push(id)
+        }
+      })
     })
-    const questionIdArray = Array.from(questionIds)
 
-    // Build header row
-    const headers = ['설문유형', '이름', '연락처', '제출일시', ...questionIdArray]
+    // Build header row with question text
+    const getQuestionLabel = (qId: string): string => {
+      for (const type of seenTypes) {
+        const survey = surveys[type as SurveyType]
+        if (!survey) continue
+        if (survey.respondentFields) {
+          const f = survey.respondentFields.find((f) => f.id === qId)
+          if (f) return f.label
+        }
+        for (const s of survey.sections) {
+          const q = s.questions.find((q) => q.id === qId)
+          if (q) return stripMarkdown(q.text)
+        }
+        const p = survey.polls.find((p) => p.id === qId)
+        if (p) return stripMarkdown(p.text)
+        const fq = survey.finalQuestions.find((q) => q.id === qId)
+        if (fq) return stripMarkdown(fq.text)
+      }
+      return qId
+    }
 
-    // Build data rows
+    const headers = ['설문유형', '이름', '연락처', '제출일시', ...questionIdArray.map(getQuestionLabel)]
+
     const rows = filteredResponses.map((r) => {
       const baseRow = [
         TYPE_LABELS[r.survey_type] || r.survey_type,
@@ -166,7 +261,6 @@ export default function AdminPage() {
       return [...baseRow, ...answerRow]
     })
 
-    // Generate CSV content with BOM for Korean support
     const BOM = '\uFEFF'
     const csvContent =
       BOM +
@@ -178,7 +272,7 @@ export default function AdminPage() {
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
     link.href = url
-    link.download = `survey_responses_${new Date().toISOString().slice(0, 10)}.csv`
+    link.download = `survey_responses_${selectedType}_${new Date().toISOString().slice(0, 10)}.csv`
     document.body.appendChild(link)
     link.click()
     document.body.removeChild(link)
@@ -334,43 +428,13 @@ export default function AdminPage() {
                 </div>
               </div>
 
-              {/* Expanded Detail */}
+              {/* Expanded Detail - Survey structure order */}
               {expandedId === response.id && (
                 <div className="px-5 pb-5 pt-2 border-t border-gray-100">
-                  {response.answers &&
-                  typeof response.answers === 'object' ? (
-                    Object.entries(response.answers).map(
-                      ([questionId, answer]) => {
-                        // Skip empty answers
-                        if (
-                          answer === undefined ||
-                          answer === null ||
-                          answer === ''
-                        )
-                          return null
-
-                        const questionText = getQuestionText(
-                          response.survey_type,
-                          questionId
-                        )
-
-                        return (
-                          <div key={questionId} className="mb-3">
-                            <p className="text-sm text-gray-500 mb-1">
-                              {questionText}
-                            </p>
-                            <div className="text-sm font-medium text-[#1a2332] bg-gray-50 rounded-lg p-3">
-                              {String(answer)}
-                            </div>
-                          </div>
-                        )
-                      }
-                    )
-                  ) : (
-                    <p className="text-sm text-gray-400">
-                      응답 데이터가 없습니다.
-                    </p>
-                  )}
+                  <OrderedAnswers
+                    surveyType={response.survey_type}
+                    answers={response.answers}
+                  />
                 </div>
               )}
             </div>

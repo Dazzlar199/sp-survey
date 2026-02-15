@@ -16,14 +16,6 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Validate respondentName
-    if (!respondentName || typeof respondentName !== 'string' || respondentName.trim() === '') {
-      return NextResponse.json(
-        { error: '응답자 이름은 필수입니다.' },
-        { status: 400 }
-      )
-    }
-
     // Validate answers
     if (!answers || typeof answers !== 'object' || Array.isArray(answers)) {
       return NextResponse.json(
