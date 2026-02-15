@@ -211,7 +211,7 @@ export default function AdminPage() {
     }
 
     // Get ordered question IDs from all survey types in filtered responses
-    const seenTypes = new Set(filteredResponses.map((r) => r.survey_type))
+    const seenTypes = Array.from(new Set(filteredResponses.map((r) => r.survey_type)))
     const questionIdArray: string[] = []
     const questionIdSet = new Set<string>()
     seenTypes.forEach((type) => {
@@ -225,7 +225,7 @@ export default function AdminPage() {
 
     // Build header row with question text
     const getQuestionLabel = (qId: string): string => {
-      for (const type of seenTypes) {
+      for (const type of Array.from(seenTypes)) {
         const survey = surveys[type as SurveyType]
         if (!survey) continue
         if (survey.respondentFields) {
